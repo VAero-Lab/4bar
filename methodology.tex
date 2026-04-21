@@ -1,0 +1,500 @@
+% =============================================================================
+% BIO Framework — Methodology Section
+% Standalone file for inclusion via \input{methodology} in main manuscript
+% =============================================================================
+
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Problem statement}
+\label{sec:problem_statement}
+
+Engineering design often admits multiple geometric realizations of the same functional requirement. A structural beam may be realized as an I-section or a box-section; an airfoil may be parameterized analytically or as a free-form curve; a vibration isolator may use a passive spring-damper or a tuned mass damper. The central question this framework addresses is:
+
+\begin{quote}
+\emph{Given an optimized design in one parameterization family, does there exist a geometrically distinct design---possibly in a different parameterization family---that achieves equivalent performance across a specified set of operating conditions?}
+\end{quote}
+
+This section formalizes the question as a bilevel optimization problem and develops the mathematical tools for answering it: the isoperformance residual~(\S\ref{sec:residual}), the isoperformance manifold and its dimensional pre-analysis~(\S\ref{sec:manifold}), a progressive hierarchy of problem formulations~(\S\ref{sec:formulations}), a stringency analysis for multi-condition equivalence~(\S\ref{sec:stringency}), and the solution strategy~(\S\ref{sec:solution_strategy}).
+
+
+% -----------------------------------------------------------------------------
+\subsection{Fundamental spaces and maps}
+\label{sec:spaces}
+
+\subsubsection{Design parameterization families}
+\label{sec:families}
+
+Let $N \geq 2$ design parameterization families be defined, indexed $i = 1, \ldots, N$. Each family~$i$ is characterized by a parameter vector
+\begin{equation}
+    \mathbf{x}_i \in \mathcal{X}_i \subseteq \mathbb{R}^{n_i},
+    \label{eq:param_vector}
+\end{equation}
+where $\mathcal{X}_i$ is a compact set encoding physical feasibility constraints (e.g., positive thicknesses, bounded coefficients), and $n_i$~is the number of design parameters in family~$i$. Families may have different dimensions $n_i \neq n_j$ and different algebraic structures. No algebraic operation between $\mathbf{x}_i$ and $\mathbf{x}_j$ ($i \neq j$) is assumed---the parameterizations may be incommensurable.
+
+\emph{Convention}: Family~1 is the \emph{reference family} (optimized for performance). Families $i = 2, \ldots, N$ are \emph{target families} (in which equivalents are sought).
+
+
+\subsubsection{Common shape space}
+\label{sec:shape_space}
+
+Let $\mathcal{S}$ denote the \emph{common shape space}---a normed vector space of physical geometric representations shared by all parameterization families. Its specific realization is domain-dependent (discretized surface coordinates for airfoils, boundary curves for cross-sections, frequency response functions for dynamic systems), but the framework treats~$\mathcal{S}$ abstractly.
+
+Each family is connected to shape space through a \emph{realization map},
+\begin{equation}
+    \varphi_i : \mathcal{X}_i \to \mathcal{S}, \quad i = 1, \ldots, N,
+    \label{eq:realization_map}
+\end{equation}
+assumed continuous. The realization map converts a parameter vector into its physical geometric representation, enabling comparison of designs from any two families within~$\mathcal{S}$.
+
+The \emph{shape-space distance} between any two configurations is
+\begin{equation}
+    d_{\mathcal{S}}(\mathbf{x}_i, \mathbf{x}_j)
+    := \left\| \varphi_i(\mathbf{x}_i) - \varphi_j(\mathbf{x}_j) \right\|_{\mathcal{S}},
+    \label{eq:shape_distance}
+\end{equation}
+where $\|\cdot\|_{\mathcal{S}}$ is the norm on~$\mathcal{S}$. This is well-defined for all pairs $(i,j)$, including within-family ($i = j$) and cross-family ($i \neq j$) comparisons.
+
+\begin{remark}
+In degenerate cases where shape space and parameter space coincide (e.g., physical parameters of a dynamic system), $d_{\mathcal{S}}$ reduces to a weighted norm in parameter space. However, when families have different dimensions ($n_1 \neq n_2$), the realization maps must produce objects in the \emph{same} representation space~$\mathcal{S}$---never in the raw parameter spaces, which are incommensurable.
+\end{remark}
+
+
+\subsubsection{Evaluation parameter space}
+\label{sec:eval_params}
+
+Let $\mathcal{A}$ denote the \emph{evaluation parameter space}---the set of external conditions at which performance is assessed. A single element $\boldsymbol{\alpha} \in \mathcal{A}$ is an evaluation parameter. The framework treats~$\mathcal{A}$ abstractly; domain-specific interpretations include aerodynamic state (angle of attack, Reynolds number), structural load cases (bending moment, torque), or excitation frequencies.
+
+Let a finite evaluation grid be defined:
+\begin{equation}
+    \left\{ \boldsymbol{\alpha}^{(1)}, \boldsymbol{\alpha}^{(2)}, \ldots, \boldsymbol{\alpha}^{(P)} \right\} \subset \mathcal{A},
+    \label{eq:eval_grid}
+\end{equation}
+with $P \geq 1$ evaluation points. The number~$P$ controls the \emph{stringency} of the equivalence requirement; its role is developed in~\S\ref{sec:stringency}.
+
+
+\subsubsection{Performance map}
+\label{sec:perf_map}
+
+Let $\mathbf{f} : \mathcal{S} \times \mathcal{A} \to \mathbb{R}^m$ be the \emph{performance map}, assigning to each shape--evaluation pair a vector of $m$~scalar performance quantities:
+\begin{equation}
+    \mathbf{f}(s, \boldsymbol{\alpha})
+    = \bigl[ f_1(s, \boldsymbol{\alpha}),\; f_2(s, \boldsymbol{\alpha}),\; \ldots,\; f_m(s, \boldsymbol{\alpha}) \bigr]^\top.
+    \label{eq:perf_map}
+\end{equation}
+The performance map encodes all physics of the problem. It is assumed continuous and evaluable by a computational model appropriate to the application (closed-form expressions, transfer functions, panel methods, etc.).
+
+The \emph{parametric performance map} for family~$i$ composes the realization map with the performance map:
+\begin{equation}
+    \mathbf{F}_i(\mathbf{x}_i, \boldsymbol{\alpha})
+    := \mathbf{f}\bigl( \varphi_i(\mathbf{x}_i),\, \boldsymbol{\alpha} \bigr).
+    \label{eq:param_perf_map}
+\end{equation}
+This maps directly from parameter space to performance space, bypassing explicit construction of the shape representation when the physics model operates on parameters directly.
+
+
+% -----------------------------------------------------------------------------
+\subsection{The isoperformance residual}
+\label{sec:residual}
+
+\subsubsection{Definition}
+
+To compare performance between two designs $\mathbf{x}_1 \in \mathcal{X}_1$ and $\mathbf{x}_i \in \mathcal{X}_i$ across all evaluation parameters, define the \emph{normalized cross-configuration performance residual}:
+\begin{equation}
+    \mathcal{R}(\mathbf{x}_1, \mathbf{x}_i)
+    = \sum_{j=1}^{P} \omega_j \sum_{k=1}^{m} w_k
+    \left[ \frac{F_{1,k}(\mathbf{x}_1, \boldsymbol{\alpha}^{(j)})
+               - F_{i,k}(\mathbf{x}_i, \boldsymbol{\alpha}^{(j)})}
+              {f_k^{\mathrm{ref}}} \right]^2,
+    \label{eq:residual}
+\end{equation}
+where:
+\begin{itemize}
+    \item $\omega_j > 0$ are evaluation parameter weights satisfying $\sum_{j=1}^{P} \omega_j = 1$, assigning relative importance to each operating condition.
+    \item $w_k > 0$ are performance metric weights satisfying $\sum_{k=1}^{m} w_k = 1$, balancing contributions across performance components of different physical dimensions.
+    \item $f_k^{\mathrm{ref}} > 0$ are reference values rendering $\mathcal{R}$ dimensionless. A natural choice is $f_k^{\mathrm{ref}} = |F_{1,k}(\mathbf{x}_1^{(0)}, \boldsymbol{\alpha}^{(1)})|$, evaluated at a fixed baseline configuration~$\mathbf{x}_1^{(0)}$ before optimization begins.
+\end{itemize}
+
+
+\subsubsection{Properties}
+
+\begin{description}
+    \item[Non-negativity.] $\mathcal{R} \geq 0$, with $\mathcal{R} = 0$ if and only if $\mathbf{F}_1(\mathbf{x}_1, \boldsymbol{\alpha}^{(j)}) = \mathbf{F}_i(\mathbf{x}_i, \boldsymbol{\alpha}^{(j)})$ for all $j = 1, \ldots, P$.
+    \item[Symmetry.] $\mathcal{R}(\mathbf{x}_1, \mathbf{x}_i) = \mathcal{R}(\mathbf{x}_i, \mathbf{x}_1)$. In the bilevel formulation, the arguments play asymmetric roles (reference vs.\ target), but $\mathcal{R}$~itself is symmetric.
+    \item[Dimensionlessness.] Normalization by $f_k^{\mathrm{ref}}$ ensures $\mathcal{R}$ is a pure number, enabling comparison across applications and performance metrics.
+    \item[Interpretation.] $\mathcal{R}$ is the weighted mean squared relative performance deviation. A value $\mathcal{R} = 10^{-4}$ indicates that the average relative deviation in each performance metric at each evaluation point is of order~$1\%$.
+\end{description}
+
+\subsubsection{Adaptive target}
+\label{sec:adaptive_target}
+
+In the bilevel formulation~(\S\ref{sec:bilevel}), $\mathbf{F}_1(\mathbf{x}_1, \cdot)$ in the residual is \emph{not} fixed---it is the current outer-level candidate's performance, which changes as the outer optimizer traverses~$\mathcal{X}_1$. The inner loop tracks this moving target. This adaptive coupling is what gives the framework its bilevel character and distinguishes it from a simple performance-matching problem with a prescribed target.
+
+
+% -----------------------------------------------------------------------------
+\subsection{The isoperformance manifold and dimensional pre-analysis}
+\label{sec:manifold}
+
+\subsubsection{The exact isoperformance manifold}
+
+Once a reference design~$\mathbf{x}_1^*$ is established (either given or found by optimization), its performance defines a target:
+\begin{equation}
+    \mathbf{f}^* := \mathbf{f}\bigl( \varphi_1(\mathbf{x}_1^*),\, \cdot\, \bigr).
+\end{equation}
+The \emph{exact isoperformance manifold} in shape space is the level set
+\begin{equation}
+    \mathcal{M}_0(\mathbf{f}^*)
+    := \bigl\{ s \in \mathcal{S} \,:\, \mathbf{f}(s, \boldsymbol{\alpha}) = \mathbf{f}^*(\boldsymbol{\alpha})
+    \;\; \forall\, \boldsymbol{\alpha} \in \mathcal{A} \bigr\}.
+    \label{eq:exact_manifold}
+\end{equation}
+
+
+\subsubsection{Dimensional formula}
+
+\begin{theorem}[Isoperformance manifold dimension]
+\label{thm:dimension}
+Let $\mathbf{f} : \mathcal{S} \times \mathcal{A} \to \mathbb{R}^m$ be smooth. If the Jacobian $\partial \mathbf{f}/\partial s$ has full row rank~$m$ on~$\mathcal{M}_0$, then by the Implicit Function Theorem, $\mathcal{M}_0$ is a smooth embedded submanifold of~$\mathcal{S}$ of dimension
+\begin{equation}
+    \dim(\mathcal{M}_0) = \dim(\mathcal{S}) - m.
+    \label{eq:dim_global}
+\end{equation}
+\end{theorem}
+
+Since the BIO framework searches within parameterization families, the operationally relevant quantity is the dimension of the isoperformance set restricted to each family. Define the \emph{per-family isoperformance set}:
+\begin{equation}
+    \mathcal{M}_{0,i}(\mathbf{f}^*)
+    := \bigl\{ \mathbf{x}_i \in \mathcal{X}_i \,:\,
+    \mathbf{F}_i(\mathbf{x}_i, \boldsymbol{\alpha}) = \mathbf{f}^*(\boldsymbol{\alpha})
+    \;\; \forall\, \boldsymbol{\alpha} \in \mathcal{A} \bigr\}.
+    \label{eq:family_manifold}
+\end{equation}
+
+\begin{corollary}[Per-family dimension]
+\label{cor:per_family_dim}
+Under the regularity condition that the Jacobian $\partial \mathbf{F}_i / \partial \mathbf{x}_i$ has full row rank on~$\mathcal{M}_{0,i}$:
+\begin{equation}
+    \dim(\mathcal{M}_{0,i}) = n_i - \operatorname{rank}\!\left( \left.\frac{\partial \mathbf{F}_i}{\partial \mathbf{x}_i}\right|_{\mathcal{M}_{0,i}} \right).
+    \label{eq:dim_family}
+\end{equation}
+In the generic case where the $m$~performance functions are independent $(\operatorname{rank} = m)$:
+\begin{equation}
+    \dim(\mathcal{M}_{0,i}) = n_i - m.
+    \label{eq:dim_family_generic}
+\end{equation}
+\end{corollary}
+
+This per-family formula is the actionable prediction. It determines, before any optimization is performed, whether equivalents in family~$i$ are expected to form:
+\begin{itemize}
+    \item a \emph{positive-dimensional family} ($n_i > m$): infinitely many equivalent designs forming a continuous manifold of dimension $n_i - m$;
+    \item \emph{isolated points} ($n_i = m$): finitely many equivalent designs, provided the Jacobian is non-singular at those points;
+    \item \emph{no solutions generically} ($n_i < m$): the system is over-determined and equivalents generically do not exist.
+\end{itemize}
+
+\begin{remark}
+The full shape-space formula~\eqref{eq:dim_global} provides a theoretical upper bound but uses the ambient discretization dimension of~$\mathcal{S}$, which may vastly exceed the intrinsic dimension of the space of physically realizable shapes. The per-family formula~\eqref{eq:dim_family_generic} avoids this issue by working directly with the parameterization dimension~$n_i$.
+\end{remark}
+
+
+\subsubsection{Computational approximation: the $\varepsilon$-neighborhood}
+\label{sec:eps_neighborhood}
+
+Exact performance matching ($\mathcal{R} = 0$) is a measure-zero event in numerical computation. The algorithm searches within a tolerance:
+\begin{equation}
+    \mathcal{M}_i(\mathbf{f}^*, \varepsilon_{\mathrm{tol}})
+    := \bigl\{ \mathbf{x}_i \in \mathcal{X}_i \,:\,
+    \mathcal{R}(\mathbf{x}_1^*, \mathbf{x}_i) \leq \varepsilon_{\mathrm{tol}} \bigr\}.
+    \label{eq:approx_manifold}
+\end{equation}
+This is a \emph{sublevel set} of~$\mathcal{R}$---a compact region in parameter space, not a manifold. It is the $\varepsilon_{\mathrm{tol}}$-neighborhood of the exact isoperformance set~$\mathcal{M}_{0,i}$ within~$\mathcal{X}_i$.
+
+For sufficiently small~$\varepsilon_{\mathrm{tol}}$, if $\mathcal{M}_{0,i}$ is a smooth manifold, then $\mathcal{M}_i(\mathbf{f}^*, \varepsilon_{\mathrm{tol}})$ is a \emph{tubular neighborhood} of~$\mathcal{M}_{0,i}$ whose topology (number of connected components, connectivity) matches that of~$\mathcal{M}_{0,i}$. The dimensional formula~\eqref{eq:dim_family_generic} applies to the skeleton~$\mathcal{M}_{0,i}$; the sequential sampling algorithm~(\S\ref{sec:sampling}) explores the thickened neighborhood~$\mathcal{M}_i(\mathbf{f}^*, \varepsilon_{\mathrm{tol}})$.
+
+
+\subsubsection{Regularity verification}
+\label{sec:regularity}
+
+When $n_i = m$ (the isolated-solution regime), the Jacobian $\partial \mathbf{F}_i / \partial \mathbf{x}_i$ is square, and the existence of isolated solutions requires non-singularity. For application cases with closed-form performance maps, this Jacobian can be computed analytically and its rank verified at the solution points---a necessary step in the dimensional pre-analysis that strengthens the interpretation of numerical results.
+
+
+% -----------------------------------------------------------------------------
+\subsection{Problem formulations}
+\label{sec:formulations}
+
+The BIO framework is formulated progressively, from the simplest problem that answers the existence question to the full bilevel optimization that characterizes the performance--substitutability trade-off.
+
+
+\subsubsection{Level~A: the pair problem (fixed reference)}
+\label{sec:pair}
+
+The simplest formulation fixes a reference design $\mathbf{x}_1 \in \mathcal{X}_1$ and searches for a single equivalent in a target family.
+
+\begin{subequations}
+\label{eq:pair_problem}
+\begin{alignat}{2}
+    \varepsilon^*(\mathbf{x}_1)
+    &= \min_{\mathbf{x}_2 \in \mathcal{X}_2}\;
+    && \mathcal{R}(\mathbf{x}_1, \mathbf{x}_2) \\
+    &\;\;\text{s.t.}\;
+    && d_{\mathcal{S}}(\mathbf{x}_1, \mathbf{x}_2) \geq \delta
+\end{alignat}
+\end{subequations}
+
+\noindent\textbf{Outcome:}
+\begin{itemize}
+    \item If $\varepsilon^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}}$: an equivalent exists. The pair $(\mathbf{x}_1, \mathbf{x}_2^*)$ demonstrates cross-family isoperformance.
+    \item If $\varepsilon^*(\mathbf{x}_1) > \varepsilon_{\mathrm{tol}}$: no geometrically distinct equivalent exists within~$\mathcal{X}_2$ at this tolerance for this reference design.
+\end{itemize}
+
+The exclusion constraint $d_{\mathcal{S}} \geq \delta$ removes a ball of radius~$\delta$ centered at $\varphi_1(\mathbf{x}_1)$ from the feasible region in shape space, preventing the trivial solution where~$\mathbf{x}_2$ merely reproduces the reference geometry in a different parameterization (\emph{representational near-triviality}). The value of~$\delta$ should be set relative to the characteristic scale of shapes in~$\mathcal{S}$.
+
+\medskip
+\noindent\emph{Engineering question answered}: ``Can I substitute this specific design from family~A with a design from family~B without performance loss?''
+
+
+\subsubsection{Level~B: parametric feasibility mapping}
+\label{sec:feasibility_map}
+
+A natural extension of the pair problem is to solve it for a systematic set of reference designs spanning~$\mathcal{X}_1$, producing a \emph{feasibility map} of the reference design space.
+
+For a grid $\{\mathbf{x}_1^{(1)}, \mathbf{x}_1^{(2)}, \ldots, \mathbf{x}_1^{(Q)}\} \subset \mathcal{X}_1$, solve the pair problem~\eqref{eq:pair_problem} for each~$\mathbf{x}_1^{(q)}$ and record the optimal residual $\varepsilon^*(\mathbf{x}_1^{(q)})$. The feasibility map is then
+\begin{equation}
+    \mathcal{X}_1^{\mathrm{feas}}(\varepsilon_{\mathrm{tol}})
+    := \bigl\{ \mathbf{x}_1 \in \mathcal{X}_1 \,:\,
+    \varepsilon^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}} \bigr\},
+    \label{eq:feasibility_map}
+\end{equation}
+the subset of the reference design space for which cross-family equivalents exist. Visualizing~$\varepsilon^*(\mathbf{x}_1)$ over~$\mathcal{X}_1$ reveals which regions admit substitution and which do not---a result with direct practical value.
+
+\medskip
+\noindent\emph{Engineering question answered}: ``Which designs in family~A are substitutable with designs in family~B?''
+
+\begin{remark}
+Level~B is not a new mathematical formulation---it is the pair problem solved repeatedly. However, it produces a qualitatively different type of result (a map of the design space, rather than a single existence statement) and naturally motivates the bilevel formulation: rather than sweeping $\mathbf{x}_1$ exhaustively, optimize over it.
+\end{remark}
+
+
+\subsubsection{Level~C: the bilevel isoperformance problem}
+\label{sec:bilevel}
+
+The full bilevel formulation simultaneously optimizes the reference design for performance while requiring that a cross-family equivalent exists.
+
+\begin{subequations}
+\label{eq:bilevel}
+\begin{alignat}{3}
+    &\text{(Upper level)} &\quad& \min_{\mathbf{x}_1 \in \mathcal{X}_1}\;
+    && J\bigl( \mathbf{F}_1(\mathbf{x}_1, \cdot) \bigr)
+    \label{eq:upper_obj} \\
+    & &\quad& \text{s.t.}\;
+    && \mathbf{G}\bigl( \mathbf{F}_1(\mathbf{x}_1, \cdot) \bigr) \leq \mathbf{0}
+    \label{eq:upper_perf_constr} \\
+    & & &
+    && \varepsilon^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}}
+    \label{eq:upper_coupling} \\[6pt]
+    &\text{(Lower level)} &\quad&
+    \varepsilon^*(\mathbf{x}_1) = \min_{\mathbf{x}_2 \in \mathcal{X}_2}\;
+    && \mathcal{R}(\mathbf{x}_1, \mathbf{x}_2)
+    \label{eq:lower_obj} \\
+    & &\quad& \text{s.t.}\;
+    && d_{\mathcal{S}}(\mathbf{x}_1, \mathbf{x}_2) \geq \delta
+    \label{eq:lower_constr}
+\end{alignat}
+\end{subequations}
+
+The roles of each component:
+\begin{description}
+    \item[$J$:] Scalar outer objective---any domain-appropriate performance metric to be minimized (drag coefficient, structural mass, peak transmissibility). This is the engineer's primary design goal.
+    \item[$\mathbf{G} \leq \mathbf{0}$:] Performance constraints on~$\mathbf{x}_1$---physical requirements independent of the inner loop (minimum lift, maximum stress, frequency bounds).
+    \item[$\varepsilon^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}}$:] The \emph{equivalence constraint}---the bilevel coupling. The outer optimizer implicitly operates only in the feasible region~$\mathcal{X}_1^{\mathrm{feas}}$~\eqref{eq:feasibility_map}.
+    \item[Inner problem:] For each outer candidate~$\mathbf{x}_1$, the inner problem finds~$\mathbf{x}_2$ minimizing performance distance subject to geometric separation. The target is \emph{adaptive}---it changes with every outer candidate~(\S\ref{sec:adaptive_target}).
+\end{description}
+
+\paragraph{Structural properties.}
+
+\begin{description}
+    \item[S1---Optimistic convention.] When the lower level has multiple solutions, the one most favorable to the upper level (minimum~$\mathcal{R}$) is selected. Since both levels share the goal of finding equivalents, the optimistic formulation is natural.
+    \item[S2---Non-smoothness.] The coupling constraint $\varepsilon^*(\mathbf{x}_1)$ is the optimal-value function of a generally non-convex inner problem. It is non-smooth as a function of~$\mathbf{x}_1$, precluding gradient-based outer-level solvers and motivating derivative-free methods.
+    \item[S3---Computational cost.] Each outer function evaluation requires a complete inner optimization. If the outer optimizer performs $N_{\mathrm{outer}}$ evaluations, each requiring $N_{\mathrm{inner}}$ inner evaluations at cost $t_{\mathrm{eval}}$ per physics call, the total cost is approximately $N_{\mathrm{outer}} \times N_{\mathrm{inner}} \times t_{\mathrm{eval}}$.
+\end{description}
+
+\paragraph{The performance--substitutability trade-off.}
+Let $J_{\mathrm{unc}}^*$ denote the optimal objective without the equivalence constraint, and $J_{\mathrm{BIO}}^*$ the optimal objective with it. The \emph{substitutability cost} is
+\begin{equation}
+    \Delta_{\mathrm{sub}}
+    := \frac{J_{\mathrm{BIO}}^* - J_{\mathrm{unc}}^*}{|J_{\mathrm{unc}}^*|},
+    \label{eq:sub_cost}
+\end{equation}
+quantifying the performance sacrifice required to ensure a cross-family equivalent exists.
+
+\medskip
+\noindent\emph{Engineering question answered}: ``What is the best-performing design in family~A that also admits a substitute in family~B? What performance penalty does the equivalence requirement impose?''
+
+
+\subsubsection{Extension to multiple target families}
+\label{sec:multiple_families}
+
+When equivalents are sought in more than one target family, each target family adds an independent inner problem:
+\begin{equation}
+    \varepsilon_i^*(\mathbf{x}_1) = \min_{\mathbf{x}_i \in \mathcal{X}_i}\;
+    \mathcal{R}(\mathbf{x}_1, \mathbf{x}_i)
+    \quad \text{s.t.} \quad
+    d_{\mathcal{S}}(\mathbf{x}_1, \mathbf{x}_i) \geq \delta,
+    \quad i = 2, \ldots, N.
+    \label{eq:multi_inner}
+\end{equation}
+The outer problem adds one coupling constraint per target family: $\varepsilon_i^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}}$ for $i = 2, \ldots, N$. The inner problems are \emph{independent}---they share the outer candidate~$\mathbf{x}_1$ but do not interact. There is no mutual distinctness requirement between target families, as cross-family designs are already structurally different by construction.
+
+
+\subsubsection{Sequential manifold sampling}
+\label{sec:sampling}
+
+After the pair problem confirms existence of at least one equivalent, sequential manifold sampling explores the isoperformance set within a target family by solving the pair problem repeatedly with cumulative exclusion zones.
+
+\begin{algorithm}
+\caption{Sequential manifold sampling within family~$i$}
+\label{alg:sampling}
+\begin{algorithmic}[1]
+\REQUIRE Reference $\mathbf{x}_1^*$, family $(\mathcal{X}_i, \varphi_i, \mathbf{F}_i)$, parameters $\delta$, $\varepsilon_{\mathrm{tol}}$, max samples $R$
+\STATE $\mathcal{Q}_i \gets \varnothing$
+\FOR{$r = 1, 2, \ldots, R$}
+    \STATE Solve:
+    \[
+        \mathbf{x}_i^{(r)} = \argmin_{\mathbf{x}_i \in \mathcal{X}_i}\;
+        \mathcal{R}(\mathbf{x}_1^*, \mathbf{x}_i)
+        \quad \text{s.t.} \quad
+        \begin{cases}
+            d_{\mathcal{S}}(\mathbf{x}_1^*, \mathbf{x}_i) \geq \delta \\
+            d_{\mathcal{S}}(\mathbf{x}_i^{(\ell)}, \mathbf{x}_i) \geq \delta
+            & \forall\, \ell < r
+        \end{cases}
+    \]
+    \IF{$\mathcal{R}(\mathbf{x}_1^*, \mathbf{x}_i^{(r)}) \leq \varepsilon_{\mathrm{tol}}$}
+        \STATE $\mathcal{Q}_i \gets \mathcal{Q}_i \cup \{\mathbf{x}_i^{(r)}\}$
+    \ELSE
+        \STATE \textbf{terminate}: no further equivalents reachable
+    \ENDIF
+\ENDFOR
+\RETURN $\mathcal{Q}_i = \{\mathbf{x}_i^{(1)}, \ldots, \mathbf{x}_i^{(R')}\}$, \quad $R' \leq R$
+\end{algorithmic}
+\end{algorithm}
+
+The accumulated set~$\mathcal{Q}_i$ is a point cloud on $\mathcal{M}_i(\mathbf{f}^*, \varepsilon_{\mathrm{tol}})$. Its cardinality gives a lower bound on the number of distinct equivalents. Its geometric structure---analyzed through dimensionality reduction (PCA on the realized shapes $\{\varphi_i(\mathbf{x}_i^{(r)})\}$, or UMAP for nonlinear structure)---reveals the effective dimension and topology of the equivalence set.
+
+The pair problem is the $r = 1$ case (existence test). Sequential sampling is the multiplicity and structure characterization. The algorithm's termination pattern is predicted by the dimensional formula~\eqref{eq:dim_family_generic}:
+\begin{itemize}
+    \item $\dim(\mathcal{M}_{0,i}) > 0$: sampling continues until the budget~$R$ is exhausted. PCA on~$\mathcal{Q}_i$ should reveal an effective dimension consistent with $n_i - m$.
+    \item $\dim(\mathcal{M}_{0,i}) = 0$: sampling terminates after finding a small finite number of isolated solutions.
+    \item $\dim(\mathcal{M}_{0,i}) < 0$: sampling terminates at $r = 1$ with $\mathcal{R} > \varepsilon_{\mathrm{tol}}$---no equivalent exists.
+\end{itemize}
+
+
+% -----------------------------------------------------------------------------
+\subsection{Multi-condition stringency analysis}
+\label{sec:stringency}
+
+\subsubsection{Motivation}
+
+Performance equivalence at a single operating condition ($P = 1$) is a necessary but insufficient engineering guarantee. A substitute design must perform equivalently across the intended operating envelope. The stringency analysis quantifies how equivalence degrades as the number of evaluation conditions increases.
+
+\subsubsection{Protocol}
+
+For a fixed reference~$\mathbf{x}_1^*$ and target family~$i$:
+\begin{enumerate}
+    \item Define an ordered sequence of evaluation grids of increasing cardinality: $\mathcal{A}_1 \subset \mathcal{A}_2 \subset \cdots \subset \mathcal{A}_{P_{\max}}$, with $|\mathcal{A}_l| = P_l$.
+    \item For each grid~$\mathcal{A}_l$, solve the pair problem~\eqref{eq:pair_problem} with $\mathcal{R}$ computed over~$\mathcal{A}_l$. Record the optimal residual~$\varepsilon_l^*$.
+    \item Plot the \emph{stringency curve}: $\varepsilon_l^*$ vs.\ $P_l$.
+    \item Report the \emph{critical stringency}~$P^*$: the largest~$P$ for which $\varepsilon_l^* \leq \varepsilon_{\mathrm{tol}}$.
+\end{enumerate}
+
+\subsubsection{Connection to the dimensional formula}
+
+As $P$~increases, the effective number of independent performance constraints grows. If the $m$~performance metrics are evaluated at $P$~conditions, the total number of scalar constraints is~$mP$ (though not all may be independent). The effective constraint count~$m_{\mathrm{eff}}(P)$ satisfies
+\begin{equation}
+    m \leq m_{\mathrm{eff}}(P) \leq \min(mP,\, \dim(\mathcal{S})).
+    \label{eq:m_eff}
+\end{equation}
+The per-family dimensional formula becomes
+\begin{equation}
+    \dim(\mathcal{M}_{0,i})(P) = n_i - m_{\mathrm{eff}}(P),
+    \label{eq:dim_vs_P}
+\end{equation}
+a non-increasing function of~$P$. At some critical stringency~$P^*$, the manifold dimension drops to zero or becomes negative. The stringency curve $\varepsilon^*(P)$ visualizes this collapse.
+
+\subsubsection{Engineering interpretation}
+
+The stringency curve answers: ``across how many operating conditions can I trust the substitute?'' It provides a quantitative basis for engineering substitutability decisions:
+\begin{itemize}
+    \item $\varepsilon^*(P) \leq \varepsilon_{\mathrm{tol}}$ for all~$P$ up to $P_{\max}$: the substitution is validated across the full operating envelope.
+    \item $\varepsilon^*(P)$ exceeds $\varepsilon_{\mathrm{tol}}$ at some $P^* < P_{\max}$: the substitution is valid for a subset of conditions.
+    \item $\varepsilon^*(1) > \varepsilon_{\mathrm{tol}}$: no equivalent exists even at a single condition---substitution is infeasible.
+\end{itemize}
+
+
+% -----------------------------------------------------------------------------
+\subsection{Solution strategy}
+\label{sec:solution_strategy}
+
+\subsubsection{Optimizer-agnostic formulation}
+
+The BIO framework is a \emph{problem formulation}, not an algorithm tied to a specific solver. The bilevel structure, residual, dimensional formula, and stringency analysis are independent of the optimization method. Any solver capable of handling the mathematical characteristics of each subproblem is admissible; the solver is a pluggable component in the implementation.
+
+\subsubsection{Problem characteristics and solver requirements}
+\label{sec:solver_requirements}
+
+The inner problem~\eqref{eq:pair_problem} involves continuous variables in moderate dimension ($n_2 = 3$--$8$), a generally non-convex objective, and a non-convex feasible region (the exclusion constraint $d_{\mathcal{S}} \geq \delta$ removes a ball, and sequential sampling fragments the region further). Gradient availability depends on the application: analytic gradients exist for closed-form performance maps but not for iterative solvers.
+
+The outer problem~\eqref{eq:bilevel} has continuous variables in low dimension ($n_1 = 3$--$4$) but involves the non-smooth optimal-value function~$\varepsilon^*(\mathbf{x}_1)$, generally requiring derivative-free methods.
+
+\subsubsection{Recommended strategy}
+
+Differential Evolution~(DE) is adopted as the baseline solver at both levels, providing a consistent, robust, and reproducible framework across all application cases. The exclusion constraint is enforced via a death-penalty approach: infeasible candidates violating any exclusion zone are assigned $\mathcal{R} = +\infty$, which is simple and effective for population-based methods that maintain diversity.
+
+The framework is not limited to DE. Alternative solvers applicable within the same architecture include CMA-ES (adapts the search distribution to landscape geometry; effective in dimensions 3--30), Bayesian optimization (sample-efficient for expensive physics evaluations), and multistart gradient-based methods (exploit analytic Jacobians when available). In this work, a convergence comparison between DE and CMA-ES is included on one application case to demonstrate optimizer-agnosticism.
+
+
+% -----------------------------------------------------------------------------
+\subsection{$\delta$-sensitivity analysis}
+\label{sec:delta_sensitivity}
+
+The separation threshold~$\delta$ controls the minimum geometric distinctness required. A continuation approach---solving the pair problem for a sequence of increasing~$\delta$ values---reveals the \emph{feasibility frontier}: the relationship between the minimum achievable residual and the required geometric separation.
+
+Plotting $\varepsilon^*(\delta)$ produces a \emph{feasibility curve} that characterizes the shape-space extent of the equivalence region. The maximum separation $\delta_{\max}$ at which $\varepsilon^*(\delta_{\max}) = \varepsilon_{\mathrm{tol}}$ indicates how geometrically different the substitute can be while remaining performance-equivalent.
+
+
+% -----------------------------------------------------------------------------
+\subsection{Complete algorithmic summary}
+\label{sec:algorithm_summary}
+
+The complete BIO pipeline for a single reference--target family pair $(\mathcal{X}_1, \mathcal{X}_2)$ proceeds as follows.
+
+\begin{enumerate}[label=\textbf{Step \arabic*}, leftmargin=*, itemsep=6pt]
+
+    \item \textbf{Dimensional pre-analysis.}
+    Compute $n_1$, $n_2$, $m$.
+    Predict $\dim(\mathcal{M}_{0,1}) = n_1 - m$ and $\dim(\mathcal{M}_{0,2}) = n_2 - m$.
+    If closed-form: compute Jacobians and verify rank conditions~(\S\ref{sec:regularity}).
+    Report expected manifold structure (rich / isolated / empty) for each family.
+
+    \item \textbf{Pair problem---existence (Level~A).}
+    Fix~$\mathbf{x}_1$ (given or optimized independently).
+    Solve the inner problem~\eqref{eq:pair_problem}.
+    If $\varepsilon^* \leq \varepsilon_{\mathrm{tol}}$: equivalence exists; proceed.
+    Otherwise: report non-existence and stop, or reduce~$\delta$.
+
+    \item \textbf{Stringency analysis.}
+    Re-solve the pair problem for increasing~$P = 1, 2, 4, \ldots, P_{\max}$.
+    Plot the stringency curve $\varepsilon^*(P)$ and report critical stringency~$P^*$.
+
+    \item \textbf{Sequential manifold sampling---multiplicity and structure.}
+    Run Algorithm~\ref{alg:sampling} with budget~$R$.
+    Report $|\mathcal{Q}_i|$ and apply PCA to estimate effective manifold dimension.
+    Compare to predicted $\dim(\mathcal{M}_{0,i}) = n_i - m$.
+
+    \item \textbf{Full bilevel optimization (Level~C).}
+    Solve the bilevel problem~\eqref{eq:bilevel}.
+    Report $J_{\mathrm{BIO}}^*$, compute $\Delta_{\mathrm{sub}}$~\eqref{eq:sub_cost}, and map the feasibility region~$\mathcal{X}_1^{\mathrm{feas}}$~\eqref{eq:feasibility_map}.
+
+    \item \textbf{$\delta$-sensitivity analysis (optional).}
+    Sweep~$\delta$ and plot the feasibility curve $\varepsilon^*(\delta)$~(\S\ref{sec:delta_sensitivity}).
+
+\end{enumerate}

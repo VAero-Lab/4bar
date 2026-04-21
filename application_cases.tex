@@ -1,0 +1,500 @@
+% =============================================================================
+% BIO Framework — Application Cases Section
+% Standalone file for inclusion via \input{application_cases} in main manuscript
+% Target journal: Computer Methods in Applied Mechanics and Engineering (CMAME)
+% =============================================================================
+
+\section{Application cases}
+\label{sec:applications}
+
+The BIO framework is demonstrated on three engineering application cases and one verification case. The cases are chosen to span a range of physics model fidelities, parameterization dimensions, and predicted manifold structures, while relying exclusively on fast, trustworthy computational models that do not require numerical discretization meshes. Table~\ref{tab:cases_overview} summarizes the key characteristics.
+
+\begin{table}[t]
+\centering
+\caption{Overview of application cases. All physics models evaluate in $\leq 0.5$\,s, enabling the full BIO pipeline. The predicted manifold dimension $\dim(\mathcal{M}_{0,2})$ refers to the target family at $P = 1$.}
+\label{tab:cases_overview}
+\small
+\begin{tabular}{lcccccc}
+\hline
+Case & $n_1$ & $n_2$ & $m$ & Physics model & $\dim(\mathcal{M}_{0,2})$ & Role \\
+\hline
+Structural sections & 4 & 4 & 4 & Closed-form & 0 & Application \\
+Vibration isolation  & 2 & 3 & $1 \times P$ & Analytical TF & $3 - P$ & Application \\
+2D airfoil           & 3 & 8 & $2 \times P$ & XFOIL & $8 - 2P$ & Application \\
+Four-bar linkage     & 5 & 5 & $\infty^*$ & Freudenstein & 0 & Verification \\
+\hline
+\multicolumn{7}{l}{\footnotesize $^*$Coupler-curve matching imposes infinitely many scalar constraints; see \S\ref{sec:fourbar}.}
+\end{tabular}
+\end{table}
+
+For each case, the abstract quantities defined in Section~\ref{sec:methodology} are instantiated: the parameterization families $(\mathcal{X}_i, n_i)$, the realization maps~$\varphi_i$, the shape space~$\mathcal{S}$ and its distance~$d_{\mathcal{S}}$, the performance map~$\mathbf{f}$, the evaluation parameters~$\boldsymbol{\alpha}$, and the outer objective~$J$ with constraints~$\mathbf{G}$ for the Level~C formulation. The dimensional pre-analysis is performed for every case before any optimization.
+
+
+% =============================================================================
+\subsection{Case 1: Structural cross-sections (I-beam vs.\ rectangular hollow section)}
+\label{sec:case_structural}
+
+\subsubsection{Engineering context}
+
+A fundamental question in structural design is whether two topologically different cross-sections --- for instance, an I-beam and a rectangular hollow section (RHS) --- can provide identical mechanical performance. If so, the choice between them reduces to manufacturing, corrosion, or joining considerations rather than structural adequacy. This case provides the BIO framework with a closed-form, instantaneous performance model where all quantities admit analytic Jacobians.
+
+\subsubsection{Parameterization families}
+
+\paragraph{Family~1 --- I-beam (reference).}
+The symmetric I-beam is parameterized by four geometric variables (Fig.~\ref{fig:sections}a):
+\begin{equation}
+    \mathbf{x}_1 = [b_f,\; t_f,\; h_w,\; t_w]^\top \in \mathcal{X}_1 \subset \mathbb{R}^4,
+    \label{eq:ibeam_params}
+\end{equation}
+where $b_f$ is the flange width, $t_f$ the flange thickness, $h_w$ the web height (between flange inner faces), and $t_w$ the web thickness. The overall section depth is $H = h_w + 2t_f$. Bounds enforce physical feasibility:
+\begin{equation}
+    \mathcal{X}_1 = \bigl\{ \mathbf{x}_1 \in \mathbb{R}^4 : \mathbf{x}_1^{\min} \leq \mathbf{x}_1 \leq \mathbf{x}_1^{\max},\;\; t_w \leq b_f,\;\; t_f \leq h_w \bigr\}.
+\end{equation}
+
+\paragraph{Family~2 --- Rectangular hollow section (target).}
+The RHS is parameterized by four geometric variables (Fig.~\ref{fig:sections}b):
+\begin{equation}
+    \mathbf{x}_2 = [B,\; H,\; t_h,\; t_v]^\top \in \mathcal{X}_2 \subset \mathbb{R}^4,
+    \label{eq:rhs_params}
+\end{equation}
+where $B$ is the outer width, $H$ the outer height, $t_h$ the horizontal wall thickness (top and bottom), and $t_v$ the vertical wall thickness (left and right). This allows independent control of bending stiffness in both axes. Bounds enforce positive wall thicknesses and non-degenerate geometry:
+\begin{equation}
+    \mathcal{X}_2 = \bigl\{ \mathbf{x}_2 \in \mathbb{R}^4 : \mathbf{x}_2^{\min} \leq \mathbf{x}_2 \leq \mathbf{x}_2^{\max},\;\; 2t_v < B,\;\; 2t_h < H \bigr\}.
+\end{equation}
+
+
+\subsubsection{Performance map}
+
+The performance vector consists of four section properties, all computed in closed form:
+\begin{equation}
+    \mathbf{f} = [A,\; I_{xx},\; I_{yy},\; J]^\top \in \mathbb{R}^4,
+    \label{eq:section_perf}
+\end{equation}
+where $A$ is the cross-sectional area (mass proxy), $I_{xx}$ and $I_{yy}$ are the second moments of area about the principal axes, and $J$ is the torsional constant.
+
+\paragraph{I-beam (Family~1):}
+\begin{subequations}
+\label{eq:ibeam_properties}
+\begin{align}
+    A_1 &= 2\, b_f\, t_f + h_w\, t_w, \\
+    I_{xx,1} &= \tfrac{1}{12}\bigl[ b_f (h_w + 2t_f)^3 - (b_f - t_w)\, h_w^3 \bigr], \\
+    I_{yy,1} &= \tfrac{1}{12}\bigl[ 2\, t_f\, b_f^3 + h_w\, t_w^3 \bigr], \\
+    J_1 &= \tfrac{1}{3}\bigl[ 2\, b_f\, t_f^3 + h_w\, t_w^3 \bigr].
+\end{align}
+\end{subequations}
+
+\paragraph{Rectangular hollow section (Family~2):}
+\begin{subequations}
+\label{eq:rhs_properties}
+\begin{align}
+    A_2 &= BH - (B - 2t_v)(H - 2t_h), \\
+    I_{xx,2} &= \tfrac{1}{12}\bigl[ B H^3 - (B - 2t_v)(H - 2t_h)^3 \bigr], \\
+    I_{yy,2} &= \tfrac{1}{12}\bigl[ H B^3 - (H - 2t_h)(B - 2t_v)^3 \bigr], \\
+    J_2 &= \frac{2\, t_h\, t_v\, (B - t_v)^2 (H - t_h)^2}{t_h(B - t_v) + t_v(H - t_h)}.
+\end{align}
+\end{subequations}
+The torsional constant $J_2$ uses the Bredt--Batho thin-walled approximation for closed sections. For the I-beam, the open-section approximation is used.
+
+
+\subsubsection{Shape space and distance metric}
+
+The shape space is defined as the set of discretized boundary curves:
+\begin{equation}
+    \mathcal{S} = \mathbb{R}^{2N_s}, \qquad
+    \varphi_i(\mathbf{x}_i) = \bigl[(x_1, y_1),\, (x_2, y_2),\, \ldots,\, (x_{N_s}, y_{N_s})\bigr]^\top,
+\end{equation}
+where $N_s$ points are sampled uniformly along the section perimeter. The shape-space distance is the $L^2$ norm on boundary coordinates, normalized by the square root of the cross-sectional area:
+\begin{equation}
+    d_{\mathcal{S}}(\mathbf{x}_1, \mathbf{x}_2)
+    = \frac{1}{\sqrt{A_{\mathrm{ref}}}} \left( \frac{1}{N_s} \sum_{l=1}^{N_s}
+    \left\| \mathbf{p}_l^{(1)} - \mathbf{p}_l^{(2)} \right\|^2 \right)^{1/2},
+    \label{eq:section_distance}
+\end{equation}
+where $\mathbf{p}_l^{(i)} = (x_l^{(i)}, y_l^{(i)})$ are the $l$-th boundary points of section~$i$, and $A_{\mathrm{ref}}$ is a reference area normalizing the distance to a dimensionless quantity.
+
+\begin{remark}
+Since the I-beam and RHS have fundamentally different boundary topologies (the I-beam has reentrant corners at the flange--web junction; the RHS is a simple rectangle with a rectangular hole), the boundary correspondence requires both sections to be centered at their centroids with principal axes aligned, and the perimeter points to be parameterized by arclength fraction.
+\end{remark}
+
+
+\subsubsection{Evaluation parameters}
+
+The section properties $[A, I_{xx}, I_{yy}, J]$ are geometric invariants independent of loading. This case therefore has no evaluation parameters in the sense of~\eqref{eq:eval_grid}: the performance map is evaluated at a single condition ($P = 1$), with $\omega_1 = 1$. The stringency analysis (\S\ref{sec:stringency}) does not apply directly; instead, the role of $m$ (the number of matched properties) provides an analogous effect, as discussed below.
+
+
+\subsubsection{Outer objective and constraints (Level~C)}
+
+\begin{equation}
+    \min_{\mathbf{x}_1 \in \mathcal{X}_1}\; A_1(\mathbf{x}_1)
+    \qquad \text{s.t.} \quad
+    I_{xx,1} \geq I_{xx}^{\min}, \quad
+    \sigma_{\max,1} \leq \sigma_{\mathrm{allow}},
+    \quad \varepsilon^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}},
+    \label{eq:section_outer}
+\end{equation}
+where $\sigma_{\max,1} = M_x H / (2 I_{xx,1})$ is the maximum bending stress under a reference moment $M_x$, and $\sigma_{\mathrm{allow}}$ is the allowable stress. The outer problem seeks the lightest I-beam that satisfies a minimum stiffness requirement, a stress limit, and the constraint that an equivalent RHS exists.
+
+
+\subsubsection{Dimensional pre-analysis}
+
+Both families have $n_i = 4$ and $m = 4$:
+\begin{equation}
+    \dim(\mathcal{M}_{0,1}) = 4 - 4 = 0, \qquad
+    \dim(\mathcal{M}_{0,2}) = 4 - 4 = 0.
+\end{equation}
+Isolated solutions are expected in both families. The Jacobians $\partial \mathbf{F}_1/\partial \mathbf{x}_1$ and $\partial \mathbf{F}_2/\partial \mathbf{x}_2$ are $4 \times 4$ matrices computable analytically from~\eqref{eq:ibeam_properties}--\eqref{eq:rhs_properties}. Non-singularity at the solution points confirms that the implicit function theorem applies and isolated equivalents exist. This verification is performed as part of the results.
+
+If the number of matched properties is reduced (e.g., matching only $[A, I_{xx}]$, $m = 2$), the predicted dimensions become $\dim(\mathcal{M}_{0,i}) = 4 - 2 = 2$ --- a two-dimensional family of equivalent sections. This provides an alternative form of the stringency analysis: increasing $m$ (matching more properties) progressively constrains the equivalence set, analogous to increasing $P$ in the condition-dependent cases.
+
+
+% =============================================================================
+\subsection{Case 2: Vibration isolation (SDOF isolator vs.\ dynamic vibration absorber)}
+\label{sec:case_vibration}
+
+\subsubsection{Engineering context}
+
+A common vibration isolation problem involves mounting sensitive equipment (mass $m_p$, fixed) on a support subject to base excitation. Two alternative strategies are considered: a simple spring--dashpot isolator (single degree of freedom, SDOF), and the same equipment augmented with a dynamic vibration absorber (DVA), forming a two-degree-of-freedom (2-DOF) system. The engineering question is: under what conditions does the 2-DOF DVA system achieve the same transmissibility as a given optimized SDOF isolator, and how robust is this equivalence across the frequency band?
+
+This case provides a closed-form analytical performance map (transfer function), a natural evaluation parameter (excitation frequency), and a clean demonstration of the stringency analysis.
+
+
+\subsubsection{Parameterization families}
+
+\paragraph{Family~1 --- SDOF isolator (reference).}
+The equipment mass $m_p$ is mounted on a spring of stiffness $k_1$ and a dashpot of damping coefficient $c_1$. The design parameters are:
+\begin{equation}
+    \mathbf{x}_1 = [k_1,\; c_1]^\top \in \mathcal{X}_1 \subset \mathbb{R}^2, \qquad n_1 = 2.
+    \label{eq:sdof_params}
+\end{equation}
+
+\paragraph{Family~2 --- SDOF + DVA (target).}
+An absorber mass $m_a$, attached to the primary mass via spring $k_a$ and dashpot $c_a$, is added. The primary isolator parameters may differ from those in Family~1. The design parameters are:
+\begin{equation}
+    \mathbf{x}_2 = [k_1',\; c_1',\; m_a,\; k_a,\; c_a]^\top \in \mathcal{X}_2 \subset \mathbb{R}^5, \qquad n_2 = 5.
+    \label{eq:dva_params}
+\end{equation}
+Primes distinguish the 2-DOF primary parameters from those of the SDOF system; they are independent design variables.
+
+\begin{remark}
+Using non-dimensional parameters (mass ratio $\mu = m_a/m_p$, tuning ratio $f_t = \omega_a/\omega_1$, damping ratios $\zeta_1$, $\zeta_a$) is often preferred in vibration analysis. The formulation here uses physical parameters for consistency with the general BIO framework; the non-dimensional form is a bijective reparameterization that does not affect the mathematical structure.
+\end{remark}
+
+
+\subsubsection{Performance map}
+
+The performance quantity is the displacement transmissibility $T(\omega) = |X_{\mathrm{eq}} / X_{\mathrm{base}}|$ --- the ratio of equipment displacement amplitude to base displacement amplitude under harmonic excitation at frequency~$\omega$. This is a scalar:
+\begin{equation}
+    m = 1.
+\end{equation}
+
+\paragraph{Family~1 --- SDOF transmissibility:}
+\begin{equation}
+    T_1(\omega;\, \mathbf{x}_1)
+    = \left[ \frac{k_1^2 + (c_1 \omega)^2}{(k_1 - m_p \omega^2)^2 + (c_1 \omega)^2} \right]^{1/2}.
+    \label{eq:sdof_transmissibility}
+\end{equation}
+
+\paragraph{Family~2 --- 2-DOF transmissibility:}
+The equations of motion for the base-excited 2-DOF system yield:
+\begin{equation}
+    T_2(\omega;\, \mathbf{x}_2)
+    = \left| \frac{N_2(i\omega)}{D_2(i\omega)} \right|,
+    \label{eq:dva_transmissibility}
+\end{equation}
+where $N_2$ and $D_2$ are polynomial expressions in $i\omega$ derived from the system's transfer function:
+\begin{subequations}
+\label{eq:dva_transfer}
+\begin{align}
+    N_2(i\omega) &= (k_a - m_a \omega^2) + i\, c_a \omega, \\
+    D_2(i\omega) &= \bigl[(k_1' + k_a - m_p \omega^2)(k_a - m_a \omega^2)
+                    - k_a^2\bigr] \notag \\
+                 &\quad + i\omega \bigl[c_1'(k_a - m_a \omega^2) + c_a(k_1' - m_p \omega^2)\bigr]
+                    - c_1' c_a \omega^2.
+\end{align}
+\end{subequations}
+Both transmissibility expressions are closed-form and evaluate in $< 1$\,ms.
+
+
+\subsubsection{Shape space and distance metric}
+
+The shape space is the space of transmissibility curves evaluated on a common frequency grid:
+\begin{equation}
+    \mathcal{S} = \mathbb{R}^{N_\omega}, \qquad
+    \varphi_i(\mathbf{x}_i) = \bigl[T_i(\omega_1;\, \mathbf{x}_i),\, \ldots,\, T_i(\omega_{N_\omega};\, \mathbf{x}_i)\bigr]^\top,
+    \label{eq:vibration_shape_space}
+\end{equation}
+where $\{\omega_1, \ldots, \omega_{N_\omega}\}$ is a fine frequency grid spanning the band of interest. The shape-space distance is the discrete $L^2$ norm on transmissibility curves:
+\begin{equation}
+    d_{\mathcal{S}}(\mathbf{x}_1, \mathbf{x}_2)
+    = \left( \frac{1}{N_\omega} \sum_{l=1}^{N_\omega}
+    \bigl[ T_1(\omega_l;\, \mathbf{x}_1) - T_2(\omega_l;\, \mathbf{x}_2) \bigr]^2 \right)^{1/2}.
+    \label{eq:vibration_distance}
+\end{equation}
+
+\begin{remark}
+The shape space here is the space of frequency response functions, not a geometric shape in the physical sense. The term ``shape space'' is used consistently with the general framework~(\S\ref{sec:shape_space}), where $\mathcal{S}$ is the common representation space through which designs from different families are compared. For dynamic systems, the frequency response is the natural common representation.
+\end{remark}
+
+
+\subsubsection{Evaluation parameters}
+
+The evaluation parameter is the excitation frequency:
+\begin{equation}
+    \boldsymbol{\alpha} = \omega, \qquad
+    \mathcal{A} = [\omega_{\min},\, \omega_{\max}] \subset \mathbb{R}_{>0}.
+\end{equation}
+The evaluation grid $\{\omega^{(1)}, \ldots, \omega^{(P)}\}$ is a set of $P$ discrete frequencies at which transmissibility equivalence is enforced through the residual~$\mathcal{R}$. These are a subset of the fine grid used for $d_{\mathcal{S}}$.
+
+This case provides the cleanest demonstration of the stringency analysis, since the effective constraint count equals $P$ directly ($m = 1$, evaluated at $P$ frequencies):
+\begin{equation}
+    m_{\mathrm{eff}}(P) = P.
+\end{equation}
+
+
+\subsubsection{Outer objective and constraints (Level~C)}
+
+\begin{equation}
+    \min_{\mathbf{x}_1 \in \mathcal{X}_1}\; T_1(\omega_n;\, \mathbf{x}_1)
+    \qquad \text{s.t.} \quad
+    T_1(\omega;\, \mathbf{x}_1) \leq T_{\max} \;\; \forall\, \omega \in [\omega_{\min}, \omega_{\max}],
+    \quad \varepsilon^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}},
+    \label{eq:vibration_outer}
+\end{equation}
+where $\omega_n = \sqrt{k_1/m_p}$ is the natural frequency. The outer problem seeks the SDOF isolator with minimum peak transmissibility, subject to a transmissibility ceiling across the band and the constraint that an equivalent DVA configuration exists.
+
+
+\subsubsection{Dimensional pre-analysis}
+
+With $m_{\mathrm{eff}} = P$:
+\begin{equation}
+    \dim(\mathcal{M}_{0,1})(P) = 2 - P, \qquad
+    \dim(\mathcal{M}_{0,2})(P) = 5 - P.
+\end{equation}
+
+The predicted stringency behavior (Table~\ref{tab:vibration_dim}):
+
+\begin{table}[h]
+\centering
+\caption{Predicted manifold dimension vs.\ stringency for the vibration isolation case.}
+\label{tab:vibration_dim}
+\small
+\begin{tabular}{cccl}
+\hline
+$P$ & $\dim(\mathcal{M}_{0,1})$ & $\dim(\mathcal{M}_{0,2})$ & Expected behavior \\
+\hline
+1 & 1 & 4 & Rich manifolds in both families \\
+2 & 0 & 3 & SDOF isolated; DVA 3-dim family \\
+3 & $-1$ & 2 & SDOF infeasible; DVA 2-dim family \\
+5 & $-3$ & 0 & DVA isolated solutions \\
+$>5$ & --- & $<0$ & Both infeasible \\
+\hline
+\end{tabular}
+\end{table}
+
+The DVA family maintains equivalence across more frequency points than the SDOF family, reflecting its greater parametric freedom. The critical stringency is predicted as $P_1^* = 2$ for the SDOF and $P_2^* = 5$ for the DVA. These predictions are tested numerically against the stringency curve $\varepsilon^*(P)$.
+
+
+% =============================================================================
+\subsection{Case 3: 2D airfoil (NACA 4-series vs.\ CST free-form)}
+\label{sec:case_airfoil}
+
+\subsubsection{Engineering context}
+
+Airfoil design offers a natural setting for cross-family isoperformance: the NACA 4-digit series represents a historically constrained, low-dimensional analytical family, while the Class-Shape Transformation (CST) parameterization provides a high-dimensional free-form family capable of representing diverse profile shapes. The question ``does there exist a CST free-form airfoil that matches the aerodynamic performance of a given NACA profile across a range of operating conditions?'' has direct relevance to aerodynamic design flexibility and is non-trivial due to the semi-empirical physics model (XFOIL).
+
+
+\subsubsection{Parameterization families}
+
+\paragraph{Family~1 --- NACA 4-digit series (reference).}
+The NACA 4-digit airfoil is parameterized by three quantities:
+\begin{equation}
+    \mathbf{x}_1 = [c_{\max},\; p,\; t_{\max}]^\top \in \mathcal{X}_1 \subset \mathbb{R}^3, \qquad n_1 = 3,
+    \label{eq:naca_params}
+\end{equation}
+where $c_{\max} \in [0, 0.095]$ is the maximum camber (fraction of chord), $p \in [0.1, 0.9]$ is the chordwise position of maximum camber (fraction of chord), and $t_{\max} \in [0.06, 0.21]$ is the maximum thickness (fraction of chord). The profile coordinates follow the standard NACA 4-digit analytical expressions~\citep{abbott1959theory}.
+
+
+\paragraph{Family~2 --- CST free-form (target).}
+The Class-Shape Transformation~\citep{kulfan2008universal} represents the airfoil upper and lower surfaces as:
+\begin{equation}
+    y_{u,l}(x) = C_{N_1}^{N_2}(x) \cdot S_{u,l}(x) + x \cdot \Delta z_{\mathrm{TE}},
+\end{equation}
+where $C_{N_1}^{N_2}(x) = x^{N_1}(1 - x)^{N_2}$ is the class function (with $N_1 = 0.5$, $N_2 = 1.0$ for typical airfoils) and $S_{u,l}(x) = \sum_{r=0}^{n_{\mathrm{cst}}} A_{r}^{u,l}\, K_r\, x^r (1-x)^{n_{\mathrm{cst}} - r}$ is the shape function expressed as a Bernstein polynomial of order~$n_{\mathrm{cst}}$, with $K_r = \binom{n_{\mathrm{cst}}}{r}$.
+
+Using $n_{\mathrm{cst}} = 3$ (order 3) for each surface yields 4 coefficients per surface:
+\begin{equation}
+    \mathbf{x}_2 = [A_0^u, A_1^u, A_2^u, A_3^u, A_0^l, A_1^l, A_2^l, A_3^l]^\top
+    \in \mathcal{X}_2 \subset \mathbb{R}^8, \qquad n_2 = 8.
+    \label{eq:cst_params}
+\end{equation}
+
+
+\subsubsection{Performance map}
+
+The performance vector at a given angle of attack~$\alpha$ consists of two aerodynamic coefficients:
+\begin{equation}
+    \mathbf{f}(s, \alpha) = [C_l(s, \alpha),\; C_d(s, \alpha)]^\top \in \mathbb{R}^2, \qquad m = 2,
+    \label{eq:airfoil_perf}
+\end{equation}
+where $C_l$ is the lift coefficient and $C_d$ is the total drag coefficient (including viscous and pressure drag). Both are computed by XFOIL~\citep{drela1989xfoil}, a coupled panel--integral boundary layer solver that captures viscous effects for attached flow at moderate angles of attack.
+
+\begin{remark}
+The pitching moment coefficient $C_m$ may be included as a third performance metric ($m = 3$), further constraining the equivalence set. This extension is noted but not pursued in the primary results to keep $m = 2$ and demonstrate a richer manifold structure.
+\end{remark}
+
+\subsubsection{Shape space and distance metric}
+
+The shape space is the space of discretized airfoil surface coordinates:
+\begin{equation}
+    \mathcal{S} = \mathbb{R}^{2N_s}, \qquad
+    \varphi_i(\mathbf{x}_i) = \bigl[(x_1, y_1),\, \ldots,\, (x_{N_s}, y_{N_s})\bigr]^\top,
+\end{equation}
+where $N_s$ points are distributed along the airfoil surface using cosine spacing concentrated near the leading edge. Both NACA and CST parameterizations produce coordinate vectors at the same stations, enabling direct comparison. The shape-space distance is the chord-normalized $L^2$ norm:
+\begin{equation}
+    d_{\mathcal{S}}(\mathbf{x}_1, \mathbf{x}_2)
+    = \left( \frac{1}{N_s} \sum_{l=1}^{N_s}
+    \bigl[ y_l^{(1)} - y_l^{(2)} \bigr]^2 \right)^{1/2},
+    \label{eq:airfoil_distance}
+\end{equation}
+where $y_l^{(i)}$ are the $y$-coordinates at the common $x$-stations (chord normalized to unity).
+
+
+\subsubsection{Evaluation parameters}
+
+The evaluation parameter is the aerodynamic angle of attack:
+\begin{equation}
+    \boldsymbol{\alpha} = \alpha_{\mathrm{aero}}, \qquad
+    \mathcal{A} = \{0^\circ, 2^\circ, 4^\circ, 6^\circ\},
+\end{equation}
+at a fixed Reynolds number $Re = 5 \times 10^5$ (representative of small UAV applications). The evaluation grid has up to $P = 4$ points spanning a cruise polar range.
+
+
+\subsubsection{Outer objective and constraints (Level~C)}
+
+\begin{equation}
+    \min_{\mathbf{x}_1 \in \mathcal{X}_1}\; C_d(\mathbf{x}_1, \alpha_{\mathrm{des}})
+    \qquad \text{s.t.} \quad
+    C_l(\mathbf{x}_1, \alpha_{\mathrm{des}}) \geq C_l^{\min},
+    \quad \varepsilon^*(\mathbf{x}_1) \leq \varepsilon_{\mathrm{tol}},
+    \label{eq:airfoil_outer}
+\end{equation}
+where $\alpha_{\mathrm{des}}$ is the design angle of attack. The outer problem performs lift-constrained drag minimization within the NACA family, subject to the existence of a CST equivalent.
+
+
+\subsubsection{Dimensional pre-analysis}
+
+With $m = 2$ and $m_{\mathrm{eff}} = 2P$:
+\begin{equation}
+    \dim(\mathcal{M}_{0,1})(P) = 3 - 2P, \qquad
+    \dim(\mathcal{M}_{0,2})(P) = 8 - 2P.
+\end{equation}
+
+\begin{table}[h]
+\centering
+\caption{Predicted manifold dimension vs.\ stringency for the airfoil case.}
+\label{tab:airfoil_dim}
+\small
+\begin{tabular}{cccl}
+\hline
+$P$ & $\dim(\mathcal{M}_{0,1})$ & $\dim(\mathcal{M}_{0,2})$ & Expected behavior \\
+\hline
+1 & 1 & 6 & NACA: 1-dim curve; CST: rich 6-dim family \\
+2 & $-1$ & 4 & NACA: infeasible; CST: 4-dim family \\
+3 & $-3$ & 2 & CST: 2-dim family \\
+4 & $-5$ & 0 & CST: isolated solutions \\
+$>4$ & --- & $<0$ & Both infeasible \\
+\hline
+\end{tabular}
+\end{table}
+
+The CST family's higher parametric freedom ($n_2 = 8$ vs.\ $n_1 = 3$) allows it to maintain equivalence across significantly more operating conditions. The NACA family, with only 3 parameters matching 2 aerodynamic coefficients, can support equivalence at most at a single angle of attack. This asymmetry between reference and target family dimensions is a design feature of the application case, highlighting that high-dimensional free-form parameterizations offer richer equivalence sets.
+
+
+% =============================================================================
+\subsection{Verification case: Four-bar linkage (Roberts--Chebyshev cognates)}
+\label{sec:fourbar}
+
+\subsubsection{Engineering context and theoretical basis}
+
+The Roberts--Chebyshev theorem~\citep{roberts1875three,hunt1978kinematic} states that for every coupler curve traceable by a planar four-bar linkage, there exist exactly three distinct four-bar linkages (called \emph{cognates}) that generate the same coupler curve. This classical result provides a known, exact reference for framework verification: the BIO framework applied to the four-bar problem should recover all three cognates through the pair problem and sequential sampling, and correctly identify the isoperformance set as zero-dimensional (isolated solutions).
+
+
+\subsubsection{Parameterization}
+
+A planar four-bar linkage is defined by the ground link length $r_1$ (normalized to unity), the crank length~$r_2$, the coupler length~$r_3$, the follower length~$r_4$, and the coupler point location specified by its distance~$r_p$ from the coupler--crank joint and angle~$\beta_p$ relative to the coupler link:
+\begin{equation}
+    \mathbf{x} = [r_2,\; r_3,\; r_4,\; r_p,\; \beta_p]^\top \in \mathcal{X} \subset \mathbb{R}^5, \qquad n = 5.
+    \label{eq:fourbar_params}
+\end{equation}
+This is a \emph{within-family} search: both the reference and target designs share the same parameterization. Distinctness is enforced entirely by the shape-space distance constraint~$\delta$.
+
+
+\subsubsection{Performance map}
+
+The performance is the coupler-point trajectory --- a closed curve in the plane traced as the crank completes one revolution. At $N_\theta$ uniformly spaced crank angles $\theta^{(j)} \in [0, 2\pi)$, the coupler-point position $(x_c^{(j)}, y_c^{(j)})$ is computed by solving the kinematic closure equations (the Freudenstein equation and its geometric companions):
+\begin{equation}
+    \mathbf{f}(\mathbf{x}, \theta^{(j)}) = \bigl[x_c(\mathbf{x}, \theta^{(j)}),\; y_c(\mathbf{x}, \theta^{(j)})\bigr]^\top \in \mathbb{R}^2.
+    \label{eq:fourbar_perf}
+\end{equation}
+With $m = 2$ and $P = N_\theta$ evaluation points, the effective constraint count is $m_{\mathrm{eff}} = 2 N_\theta$. For sufficient $N_\theta$ (e.g., $N_\theta \geq 50$), this exceeds $n = 5$, making the system vastly over-determined.
+
+
+\subsubsection{Shape space and distance metric}
+
+The shape space is the space of coupler curves:
+\begin{equation}
+    \mathcal{S} = \mathbb{R}^{2N_\theta}, \qquad
+    \varphi(\mathbf{x}) = \bigl[(x_c^{(1)}, y_c^{(1)}),\, \ldots,\, (x_c^{(N_\theta)}, y_c^{(N_\theta)})\bigr]^\top.
+\end{equation}
+The distance is the $L^2$ norm on coupler curves, normalized by the ground link length ($r_1 = 1$):
+\begin{equation}
+    d_{\mathcal{S}}(\mathbf{x}_1, \mathbf{x}_2)
+    = \left( \frac{1}{N_\theta} \sum_{j=1}^{N_\theta}
+    \left\| \mathbf{p}_c^{(1)}(\theta^{(j)}) - \mathbf{p}_c^{(2)}(\theta^{(j)}) \right\|^2 \right)^{1/2},
+    \label{eq:fourbar_distance}
+\end{equation}
+where $\mathbf{p}_c^{(i)}(\theta) = (x_c^{(i)}(\theta), y_c^{(i)}(\theta))$ is the coupler-point position of linkage~$i$ at crank angle~$\theta$.
+
+\begin{remark}
+The coupler curves of cognate linkages are identical but may be traced at different crank angle phases. Phase alignment (e.g., by matching a reference crank angle to the corresponding coupler point) is required before computing~$d_{\mathcal{S}}$, to avoid spurious distance from phase offset.
+\end{remark}
+
+
+\subsubsection{Dimensional pre-analysis and expected outcome}
+
+The system is over-determined: $m_{\mathrm{eff}} = 2 N_\theta \gg n = 5$. The dimensional formula predicts $\dim(\mathcal{M}_0) = 5 - 2N_\theta < 0$, suggesting generically no solutions. However, the coupler-curve target is not generic --- it is itself generated by a four-bar linkage and therefore lies in the image of the realization map~$\varphi$. The Roberts--Chebyshev theorem guarantees exactly 3 solutions (including the reference) for this non-generic target.
+
+The BIO framework is expected to:
+\begin{enumerate}
+    \item Recover all three cognate linkages through the pair problem ($r = 1$: find one cognate) and sequential sampling ($r = 2$: find the remaining cognate).
+    \item Achieve $\mathcal{R} \approx 0$ for all three cognates (exact equivalence, limited only by numerical precision).
+    \item Terminate sampling at $r = 3$ (no further cognates exist), confirming the zero-dimensional manifold prediction.
+\end{enumerate}
+
+This verification case validates the framework's ability to discover isolated equivalent designs in a within-family setting, against a known analytical result.
+
+
+% =============================================================================
+\subsection{Summary of dimensional pre-analysis}
+\label{sec:dim_summary}
+
+Table~\ref{tab:dim_summary} consolidates the dimensional predictions across all cases.
+
+\begin{table}[t]
+\centering
+\caption{Dimensional pre-analysis summary. For condition-dependent cases, the manifold dimension in the target family is given as a function of the stringency~$P$, with the critical stringency $P^*_2$ (largest~$P$ for which $\dim(\mathcal{M}_{0,2}) \geq 0$) indicated.}
+\label{tab:dim_summary}
+\small
+\begin{tabular}{lccccc}
+\hline
+Case & $n_1$ / $n_2$ & $m$ & $\dim(\mathcal{M}_{0,2})(P)$ & $P^*_2$ & Expected structure \\
+\hline
+Structural sections & 4 / 4 & 4 & 0 & --- & Isolated pairs \\
+Vibration isolation & 2 / 5 & $P$ & $5 - P$ & 5 & Rich $\to$ isolated \\
+2D airfoil & 3 / 8 & $2P$ & $8 - 2P$ & 4 & Rich $\to$ isolated \\
+Four-bar (verif.) & 5 / 5 & $2N_\theta$ & $<0$ & --- & 3 cognates (non-generic) \\
+\hline
+\end{tabular}
+\end{table}
+
+The four cases collectively demonstrate all three regimes predicted by the dimensional formula: positive-dimensional manifolds (vibration isolation at low~$P$, airfoil CST family), isolated solutions (structural sections, vibration isolation at $P = 5$, four-bar cognates), and over-determined infeasibility (NACA family at $P \geq 2$). The stringency analysis connects these regimes through a progressive tightening of the equivalence requirement, producing the stringency curve $\varepsilon^*(P)$ as a key diagnostic output.
