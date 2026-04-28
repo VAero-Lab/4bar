@@ -197,17 +197,11 @@ def compute_all_joints_analytical(ref_linkage, theta2, O_C):
 #  2.  NUMERICAL OPTIMISATION
 # =====================================================================
 
-def _best_curve_for_linkage(linkage, n_points, ref_curve, ref_tree):
+def _best_curve_for_linkage(linkage, n_points, ref_curve, ref_tree,
+                            sweep_types=('crank', 'coupler', 'rocker')):
     """
-    Try all 6 sweep variants {crank, coupler, rocker} × {mode +1, -1}
-    and return the curve with the lowest bidirectional error.
-
-    Different sweep parameterisations can independently select different
-    assembly branches, producing points from *different* coupler curves.
-    Combining them would contaminate the result — so we evaluate each
-    variant independently and pick the best one.
-
-    Returns (best_curve, best_error, best_sweep_name).
+    Try specified sweep variants and return the curve with the lowest 
+    bidirectional error.
     """
     thetas = np.linspace(0, 2 * np.pi, n_points, endpoint=False)
     best_error = 1e10
@@ -215,11 +209,14 @@ def _best_curve_for_linkage(linkage, n_points, ref_curve, ref_tree):
     best_name = ""
 
     for mode in [1, -1]:
-        sweeps = [
-            ("crank",   linkage._crank_sweep_vec(thetas, mode)),
-            ("coupler", linkage._coupler_sweep_vec(thetas, mode)),
-            ("rocker",  linkage._rocker_sweep_vec(thetas, mode)),
-        ]
+        sweeps = []
+        if 'crank' in sweep_types:
+            sweeps.append(("crank", linkage._crank_sweep_vec(thetas, mode)))
+        if 'coupler' in sweep_types:
+            sweeps.append(("coupler", linkage._coupler_sweep_vec(thetas, mode)))
+        if 'rocker' in sweep_types:
+            sweeps.append(("rocker", linkage._rocker_sweep_vec(thetas, mode)))
+
         for sweep_name, (pts, _, _, _) in sweeps:
             if len(pts) < 15:
                 continue
@@ -235,14 +232,19 @@ def _best_curve_for_linkage(linkage, n_points, ref_curve, ref_tree):
     return best_curve, best_error, best_name
 
 
-def _coupler_curve_error(params, O1, O2, ref_curve, ref_tree, n_points=360):
+def _coupler_curve_error(params, O1, O2, ref_curve, ref_tree, n_points=360,
+                         sweep_types=('crank', 'coupler', 'rocker'),
+                         is_double_rocker_params=False):
     """
     Bidirectional nearest-neighbour curve-matching error.
-
-    Evaluates all 6 sweep variants and returns the minimum error.
-    Design variables: [L2, L3, L4, d_cp, alpha_cp]
     """
-    L2, L3, L4, d_cp, alpha_cp = params
+    if is_double_rocker_params:
+        # Parameterised to guarantee L3 is the shortest link
+        L3, delta2, delta4, d_cp, alpha_cp = params
+        L2 = L3 + delta2
+        L4 = L3 + delta4
+    else:
+        L2, L3, L4, d_cp, alpha_cp = params
 
     if L2 <= 0 or L3 <= 0 or L4 <= 0 or d_cp <= 0:
         return 1e10
@@ -253,46 +255,21 @@ def _coupler_curve_error(params, O1, O2, ref_curve, ref_tree, n_points=360):
         return 1e10
 
     _, best_error, _ = _best_curve_for_linkage(
-        linkage, n_points=n_points, ref_curve=ref_curve, ref_tree=ref_tree
+        linkage, n_points=n_points, ref_curve=ref_curve, ref_tree=ref_tree,
+        sweep_types=sweep_types
     )
     return best_error
 
 
 def optimize_cognate(ref_curve, O1, O2, verbose=True, n_restarts=10,
-                     n_points_coarse=180, n_points_fine=1440):
+                     n_points_coarse=180, n_points_fine=1440,
+                     grashof_target=None):
     """
     Find a cognate linkage whose coupler curve matches *ref_curve*
     using a **two-phase** strategy:
 
       Phase 1 — Differential Evolution (global, coarse resolution)
-          Multi-seed restarts with ``n_points_coarse`` curve samples.
-          Fast; finds the correct basin of attraction.
-
       Phase 2 — L-BFGS-B local refinement (fine resolution)
-          Polishes the best DE result using ``n_points_fine`` curve
-          samples.  Reduces parameter error from ~0.3% to <0.01%.
-
-    Parameters
-    ----------
-    ref_curve : ndarray (N, 2)
-        Reference coupler-curve points.
-    O1, O2 : array-like
-        Ground pivots for the candidate cognate.
-    n_restarts : int
-        Number of DE runs with different seeds (default 10).
-    n_points_coarse : int
-        Curve resolution for Phase 1 (default 180).
-    n_points_fine : int
-        Curve resolution for Phase 2 (default 1440).
-
-    Returns
-    -------
-    linkage : FourBarLinkage
-        The optimised cognate linkage.
-    final_error : float
-        Final objective function value at fine resolution.
-    best_sweep : str
-        Description of the sweep variant that best matches the reference.
     """
     O1, O2 = np.asarray(O1, float), np.asarray(O2, float)
     ref_tree = KDTree(ref_curve)
@@ -308,104 +285,58 @@ def optimize_cognate(ref_curve, O1, O2, verbose=True, n_restarts=10,
     link_ub = max(max_reach, curve_diag, L1) * 1.5
     link_lb = 0.05 * min(L1, 1.0)
 
-    bounds = [
-        (link_lb, link_ub),           # L2
-        (link_lb, link_ub),           # L3
-        (link_lb, link_ub),           # L4
-        (link_lb, link_ub),           # d_cp
-        (-np.pi, np.pi),             # alpha_cp
-    ]
+    if grashof_target == 'double-rocker':
+        # Constraint: L3 must be the shortest link.
+        # Params: [L3, delta2, delta4, d_cp, alpha_cp]
+        bounds = [
+            (link_lb, min(L1, link_ub)),  # L3 (shortest)
+            (0.0, link_ub),               # delta2
+            (0.0, link_ub),               # delta4
+            (link_lb, link_ub),           # d_cp
+            (-np.pi, np.pi),             # alpha_cp
+        ]
+        sweep_types = ('coupler',)      # Crank sweeps fail for double-rockers
+        is_dr = True
+    else:
+        # Standard search
+        bounds = [
+            (link_lb, link_ub),           # L2
+            (link_lb, link_ub),           # L3
+            (link_lb, link_ub),           # L4
+            (link_lb, link_ub),           # d_cp
+            (-np.pi, np.pi),             # alpha_cp
+        ]
+        sweep_types = ('crank', 'coupler', 'rocker')
+        is_dr = False
 
     if verbose:
+        mode_str = " (Double-Rocker parameterisation)" if is_dr else ""
         print(f"  Bounds: links ∈ [{link_lb:.3f}, {link_ub:.3f}]  "
-              f"(L1={L1:.3f}, max_reach={max_reach:.3f})")
+              f"(L1={L1:.3f}){mode_str}")
 
     t0 = time.time()
+    best_result = None
+    best_history_x_de = []
+    best_history_err_de = []
 
-    # ── Phase 0: Monte Carlo screening ──
-    # Generate diverse random linkages covering all Grashof types.
-    # Each candidate is evaluated cheaply (few points) to find the
-    # correct basin before committing to expensive DE.
-    n_screen = 5000
-    n_pts_screen = 60
-    rng = np.random.RandomState(42)
-
-    if verbose:
-        print(f"  Phase 0  (screening {n_screen} random linkages, {n_pts_screen} pts)")
-
-    # Structured sampling: ensure all Grashof types are represented.
-    # In each sample, randomly assign which link is the shortest.
-    screen_best_err = 1e10
-    screen_best_params = None
-
-    for _ in range(n_screen):
-        # Pick a random "shortest link" index (0=L2, 1=L3, 2=L4, 3=L1)
-        # This ensures we explore crank-rocker, double-rocker, etc.
-        shortest_idx = rng.randint(4)
-
-        # Generate the shortest link length
-        s = rng.uniform(link_lb, L1 * 0.8)
-
-        # Generate the other 3 links (all ≥ s)
-        links = np.empty(3)
-        for j in range(3):
-            if j == shortest_idx:
-                links[j] = s
-            else:
-                links[j] = rng.uniform(s, link_ub)
-
-        # If shortest_idx == 3, the ground link L1 should be shortest.
-        # Ensure all links ≥ L1 in that case.
-        if shortest_idx == 3:
-            links = rng.uniform(L1, link_ub, size=3)
-
-        L2, L3, L4 = links
-        d_cp = rng.uniform(link_lb, link_ub)
-        alpha_cp = rng.uniform(-np.pi, np.pi)
-
-        params = [L2, L3, L4, d_cp, alpha_cp]
-        err = _coupler_curve_error(params, O1, O2, ref_curve, ref_tree,
-                                   n_points=n_pts_screen)
-        if err < screen_best_err:
-            screen_best_err = err
-            screen_best_params = params
-
-    t_screen = time.time() - t0
-    if verbose:
-        print(f"    Best screening error = {screen_best_err:.3e}  ({t_screen:.1f} s)")
-
-    # ── Phase 1: Local refinement from screening (Nelder-Mead + L-BFGS-B) ──
-    # Use multiple local optimisers starting from the best screening result
-    # and from DE exploration for robustness.
-    from scipy.optimize import minimize
-
-    # Phase 1a: Quick local polish of screening result
-    if verbose:
-        print(f"  Phase 1a  (L-BFGS-B local polish, {n_points_coarse} pts)")
-    local_result = minimize(
-        _coupler_curve_error,
-        x0=screen_best_params,
-        args=(O1, O2, ref_curve, ref_tree, n_points_coarse),
-        method='L-BFGS-B',
-        bounds=bounds,
-        options={'maxiter': 200, 'ftol': 1e-14, 'gtol': 1e-10},
-    )
-    if verbose:
-        print(f"    → error = {local_result.fun:.3e}")
-
-    # Phase 1b: DE from best result so far (to escape local minima)
-    best_x = local_result.x if local_result.fun < screen_best_err else screen_best_params
-    best_err = min(local_result.fun, screen_best_err)
-
+    # ── Phase 1: Coarse global search (Differential Evolution) ──
     for restart in range(n_restarts):
         seed = restart * 13 + 3
         if verbose:
-            print(f"  Phase 1b  [DE restart {restart+1}/{n_restarts}, seed={seed}]")
+            print(f"  Phase 1  [DE restart {restart+1}/{n_restarts}, seed={seed}]")
+
+        tracker_x_de = []
+        tracker_err_de = []
+        def cb_de(xk, convergence=None):
+            tracker_x_de.append(xk.copy())
+            # For callback we just record the error at coarse points
+            err = _coupler_curve_error(xk, O1, O2, ref_curve, ref_tree, n_points_coarse, sweep_types, is_dr)
+            tracker_err_de.append(err)
 
         result = differential_evolution(
             _coupler_curve_error,
             bounds=bounds,
-            args=(O1, O2, ref_curve, ref_tree, n_points_coarse),
+            args=(O1, O2, ref_curve, ref_tree, n_points_coarse, sweep_types, is_dr),
             maxiter=300,
             popsize=30,
             init='sobol',
@@ -414,35 +345,46 @@ def optimize_cognate(ref_curve, O1, O2, verbose=True, n_restarts=10,
             seed=seed,
             polish=False,
             disp=False,
+            callback=cb_de,
         )
 
         if verbose:
             print(f"    → error = {result.fun:.3e}  ({result.nit} iters)")
 
-        if result.fun < best_err:
-            best_err = result.fun
-            best_x = result.x
+        if best_result is None or result.fun < best_result.fun:
+            best_result = result
+            best_history_x_de = list(tracker_x_de)
+            best_history_err_de = list(tracker_err_de)
 
-        if best_err < 1e-3:
+        if best_result.fun < 1e-3:
             if verbose:
                 print(f"    ✓ Good basin found, proceeding to Phase 2.")
             break
 
     t_phase1 = time.time() - t0
     if verbose:
-        print(f"  Phase 1 done in {t_phase1:.1f} s  |  coarse error = {best_err:.3e}")
+        print(f"  Phase 1 done in {t_phase1:.1f} s  |  coarse error = {best_result.fun:.3e}")
 
     # ── Phase 2: Fine local refinement (L-BFGS-B) ──
     if verbose:
         print(f"  Phase 2  (L-BFGS-B, {n_points_fine} pts per sweep)")
 
+    history_x_phase2 = []
+    history_err_phase2 = []
+    def cb_min(xk):
+        history_x_phase2.append(xk.copy())
+        err = _coupler_curve_error(xk, O1, O2, ref_curve, ref_tree, n_points_fine, sweep_types, is_dr)
+        history_err_phase2.append(err)
+
+    from scipy.optimize import minimize
     fine_result = minimize(
         _coupler_curve_error,
-        x0=best_x,
-        args=(O1, O2, ref_curve, ref_tree, n_points_fine),
+        x0=best_result.x,
+        args=(O1, O2, ref_curve, ref_tree, n_points_fine, sweep_types, is_dr),
         method='L-BFGS-B',
         bounds=bounds,
         options={'maxiter': 500, 'ftol': 1e-15, 'gtol': 1e-12},
+        callback=cb_min,
     )
 
     t_total = time.time() - t0
@@ -450,14 +392,29 @@ def optimize_cognate(ref_curve, O1, O2, verbose=True, n_restarts=10,
         print(f"  Phase 2 done  |  fine error = {fine_result.fun:.3e}")
         print(f"  Total time: {t_total:.1f} s")
 
-    L2, L3, L4, d_cp, alpha_cp = fine_result.x
+    # Reconstruct standard parameters
+    if is_dr:
+        L3, delta2, delta4, d_cp, alpha_cp = fine_result.x
+        L2, L4 = L3 + delta2, L3 + delta4
+    else:
+        L2, L3, L4, d_cp, alpha_cp = fine_result.x
+
     linkage = FourBarLinkage(O1, O2, L2, L3, L4, d_cp, alpha_cp)
 
     _, final_error, best_sweep = _best_curve_for_linkage(
-        linkage, n_points=n_points_fine, ref_curve=ref_curve, ref_tree=ref_tree
+        linkage, n_points=n_points_fine, ref_curve=ref_curve, ref_tree=ref_tree,
+        sweep_types=sweep_types
     )
 
-    return linkage, final_error, best_sweep
+    history = {
+        'phase1_x': np.array(best_history_x_de),
+        'phase1_err': np.array(best_history_err_de),
+        'phase2_x': np.array(history_x_phase2),
+        'phase2_err': np.array(history_err_phase2),
+        'is_dr': is_dr
+    }
+
+    return linkage, final_error, best_sweep, history
 
 
 # =====================================================================
@@ -733,6 +690,83 @@ def plot_parameter_comparison(cognates_ana, cognates_opt, save_path=None):
     return fig
 
 
+def plot_optimization_history(histories, labels, save_path=None):
+    """
+    Plot the convergence of the _coupler_curve_error and the link parameters
+    for each cognate over the optimization iterations.
+    """
+    fig, axes = plt.subplots(3, 1, figsize=(10, 15), dpi=130)
+    fig.suptitle('Optimization Convergence History', fontsize=15, fontweight='bold', y=0.97)
+
+    for hist, ax1, label in zip(histories, axes, labels):
+        if hist is None:
+            continue
+            
+        # Combine phase 1 and phase 2 histories
+        err1 = hist['phase1_err']
+        err2 = hist['phase2_err']
+        x1 = hist['phase1_x']
+        x2 = hist['phase2_x']
+        
+        # Total iterations
+        iters1 = np.arange(1, len(err1) + 1)
+        iters2 = np.arange(len(err1) + 1, len(err1) + len(err2) + 1)
+        
+        ax1.set_title(label, fontsize=12, fontweight='bold')
+        ax1.set_xlabel('Iteration (Gen for DE, Iter for L-BFGS-B)', fontsize=10)
+        ax1.set_ylabel('Coupler Curve Error', color='tab:red', fontsize=10)
+        ax1.tick_params(axis='y', labelcolor='tab:red')
+        ax1.set_yscale('log')
+        
+        # Plot errors
+        if len(err1) > 0:
+            ax1.plot(iters1, err1, 'r-', marker='.', markersize=4, alpha=0.7, label='Phase 1 (DE) Error')
+        if len(err2) > 0:
+            ax1.plot(iters2, err2, 'r--', marker='.', markersize=4, alpha=0.7, label='Phase 2 (L-BFGS-B) Error')
+            
+        # Vertical line indicating phase transition
+        if len(err1) > 0 and len(err2) > 0:
+            ax1.axvline(x=len(err1), color='gray', linestyle=':', alpha=0.5)
+            
+        ax1.grid(True, alpha=0.3)
+        
+        # Second Y axis for parameters
+        ax2 = ax1.twinx()
+        ax2.set_ylabel('Parameter Value', color='tab:blue', fontsize=10)
+        ax2.tick_params(axis='y', labelcolor='tab:blue')
+        
+        # Convert x to standard parameters: L2, L3, L4, d_cp, alpha_cp
+        params_all = []
+        is_dr = hist['is_dr']
+        for x in list(x1) + list(x2):
+            if is_dr:
+                params_all.append([x[0] + x[1], x[0], x[0] + x[2], x[3], x[4]])
+            else:
+                params_all.append(list(x))
+        
+        if len(params_all) > 0:
+            params_all = np.array(params_all)
+            iters_all = np.arange(1, len(params_all) + 1)
+            
+            # Plot each parameter
+            param_names = ['L2', 'L3', 'L4', 'd_cp', 'α_cp (rad)']
+            colors = ['tab:blue', 'tab:green', 'tab:purple', 'tab:orange', 'tab:cyan']
+            
+            for j, pname in enumerate(param_names):
+                ax2.plot(iters_all, params_all[:, j], color=colors[j], alpha=0.7, label=pname)
+                
+        # Combine legends
+        lines_1, labels_1 = ax1.get_legend_handles_labels()
+        lines_2, labels_2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=8)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    if save_path:
+        fig.savefig(save_path, dpi=180, bbox_inches='tight')
+        print(f"  Saved optimization history → {save_path}")
+    return fig
+
+
 # =====================================================================
 #  4.  MAIN SCRIPT
 # =====================================================================
@@ -776,7 +810,7 @@ def main():
     #  Numerical optimisation — Cognate 1  (ground: A₀, B₀)  [VERIFICATION]
     # ------------------------------------------------------------------
     print("\n── Optimising Cognate 1 (A₀, B₀) — self-recovery verification ──")
-    cog1_opt, err1, sweep1 = optimize_cognate(ref_curve, O_A, O_B, verbose=True)
+    cog1_opt, err1, sweep1, hist1 = optimize_cognate(ref_curve, O_A, O_B, verbose=True)
     print(f"  Result:\n    {cog1_opt}")
     print(f"  Best sweep: {sweep1}  |  Fine error: {err1:.3e}")
 
@@ -784,7 +818,7 @@ def main():
     #  Numerical optimisation — Cognate 2  (ground: B₀, C₀)
     # ------------------------------------------------------------------
     print("\n── Optimising Cognate 2 (B₀, C₀) ──")
-    cog2_opt, err2, sweep2 = optimize_cognate(ref_curve, O_B, O_C, verbose=True)
+    cog2_opt, err2, sweep2, hist2 = optimize_cognate(ref_curve, O_B, O_C, verbose=True)
     print(f"  Result:\n    {cog2_opt}")
     print(f"  Best sweep: {sweep2}  |  Fine error: {err2:.3e}")
 
@@ -792,7 +826,12 @@ def main():
     #  Numerical optimisation — Cognate 3  (ground: A₀, C₀)
     # ------------------------------------------------------------------
     print("\n── Optimising Cognate 3 (A₀, C₀) ──")
-    cog3_opt, err3, sweep3 = optimize_cognate(ref_curve, O_A, O_C, verbose=True)
+    opt_cog3, err3, sweep3, hist3 = optimize_cognate(
+        ref_curve, O_A, O_C,
+        n_restarts=10, n_points_coarse=180, n_points_fine=1440,
+        grashof_target='double-rocker'
+    )
+    cog3_opt = opt_cog3
     print(f"  Result:\n    {cog3_opt}")
     print(f"  Best sweep: {sweep3}  |  Fine error: {err3:.3e}")
 
@@ -823,6 +862,12 @@ def main():
     fig3 = plot_parameter_comparison(
         cognates_ana, cognates_opt,
         save_path=f"{base_dir}/cognate_parameters.png",
+    )
+
+    fig4 = plot_optimization_history(
+        [hist1, hist2, hist3],
+        ['Cognate 1 (A₀, B₀)', 'Cognate 2 (B₀, C₀)', 'Cognate 3 (A₀, C₀)'],
+        save_path=f"{base_dir}/cognate_optimization_history.png",
     )
 
     plt.show()
